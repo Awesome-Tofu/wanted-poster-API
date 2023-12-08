@@ -1,21 +1,20 @@
+# main.py
+
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
+from io import BytesIO
 import os
 import requests
-from PIL import Image
 from app.wantedposter.wantedposter import WantedPoster
 
 app = FastAPI()
 
-def download_image(url: str, save_path: str):
+def download_image(url: str):
     response = requests.get(url)
     if response.status_code == 200:
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        with open(save_path, 'wb') as file:
-            file.write(response.content)
-        return True
+        return BytesIO(response.content)
     else:
-        return False
+        raise HTTPException(status_code=400, detail="Failed to download image from URL")
 
 @app.get("/generate-poster")
 async def generate_poster(
@@ -27,27 +26,31 @@ async def generate_poster(
     try:
         if image_source.startswith("http"):
             # If the image source is a URL, download the image
-            image_path = os.path.join("images", "downloaded_image.png")
-            if not download_image(image_source, image_path):
-                raise HTTPException(status_code=400, detail="Failed to download image from URL")
+            image_data = download_image(image_source)
         else:
-            # If the image source is a local file path
-            image_path = image_source
+            # If the image source is already image data (local file path or BytesIO), use it directly
+            image_data = image_source
 
         # Create WantedPoster object
-        wanted_poster = WantedPoster(image_path, first_name, last_name, bounty_amount)
+        wanted_poster = WantedPoster(image_data, first_name, last_name, bounty_amount)
 
         # Generate poster
         poster_path = wanted_poster.generate(should_make_portrait_transparent=True)
 
-        # Save the poster with the desired name in the "images" folder
-        save_path = os.path.join("images", "poster.jpg")
-        Image.open(poster_path).save(save_path)
+        if isinstance(poster_path, str):
+            # If the poster path is a string, it means it's a file path
+            with open(poster_path, 'rb') as poster_file:
+                poster_data = poster_file.read()
+        else:
+            # If the poster path is a BytesIO object, get the bytes
+            poster_data = poster_path.getvalue()
 
         # Delete the generated image
-        os.remove(poster_path)
+        if isinstance(poster_path, BytesIO):
+            poster_path.close()
 
-        return FileResponse(save_path, media_type="image/jpeg", filename="poster.jpg")
+        # Return the image data as a response
+        return StreamingResponse(BytesIO(poster_data), media_type="image/jpeg")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
