@@ -16,4 +16,4 @@ ENV LD_LIBRARY_PATH=/usr/local/lib
 
 EXPOSE 80
 
-CMD ["python", "app.py"]
+CMD ["uvicorn main:app --reload"]
