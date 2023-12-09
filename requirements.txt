@@ -4,6 +4,5 @@ uvicorn[standard]
 requests
 one-piece-wanted-poster
 fastapi[all]
-libfreetype6-dev
 # https://te.legra.ph/file/14632fbfeea4766941a14.png
 #mongodb+srv://tofu:tofu@cluster0.pmm1jer.mongodb.net/?retryWrites=true&w=majority
