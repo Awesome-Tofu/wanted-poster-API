@@ -8,14 +8,19 @@ from app.wantedposter.wantedposter import WantedPoster
 
 app = FastAPI()
 
+TMP_IMAGES_DIR = "/tmp/images"  # Define the directory to store images
+
 def download_image(url: str, save_path: str):
-    response = requests.get(url)
-    if response.status_code == 200:
+    try:
+        response = requests.get(url, verify=True)  # Verify SSL certificates
+        response.raise_for_status()  # Raise HTTPError for bad responses
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         with open(save_path, 'wb') as file:
             file.write(response.content)
         return True
-    else:
+    except requests.RequestException as e:
+        # Log the error for debugging purposes
+        print(f"Failed to download image from URL: {str(e)}")
         return False
 
 @app.get("/generate-poster")
@@ -26,9 +31,13 @@ async def generate_poster(
     bounty_amount: int = Query(0, title="Bounty Amount")
 ):
     try:
+        # Validate input parameters
+        if not isinstance(bounty_amount, int) or bounty_amount < 0:
+            raise HTTPException(status_code=400, detail="Invalid bounty amount")
+
         if image_source.startswith("http"):
-            # If the image source is a URL, download the image
-            image_path = os.path.join("images", "downloaded_image.png")
+            # If the image source is a URL, download the image to /tmp/images
+            image_path = os.path.join(TMP_IMAGES_DIR, f"downloaded_image_{first_name}_{last_name}.png")
             if not download_image(image_source, image_path):
                 raise HTTPException(status_code=400, detail="Failed to download image from URL")
         else:
@@ -41,18 +50,17 @@ async def generate_poster(
         # Generate poster
         poster_path = wanted_poster.generate(should_make_portrait_transparent=True)
 
-        # Save the poster with the desired name in the "images" folder
-        save_path = os.path.join("images", "poster.jpg")
+        # Save the poster with a unique name in /tmp/images
+        save_path = os.path.join(TMP_IMAGES_DIR, f"poster_{first_name}_{last_name}.jpg")
         Image.open(poster_path).save(save_path)
 
-        # Delete the generated image
-        os.remove(poster_path)
-
-        # Read the saved poster data
-        with open(save_path, 'rb') as poster_file:
-            poster_data = poster_file.read()
-
-        return StreamingResponse(BytesIO(poster_data), media_type="image/jpeg")
+        return StreamingResponse(open(save_path, 'rb'), media_type="image/jpeg")
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+        # Log the error for debugging purposes
+        print(f"Internal Server Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+    finally:
+        # Cleanup: Delete the generated image
+        if os.path.exists(poster_path):
+            os.remove(poster_path)
